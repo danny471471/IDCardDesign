@@ -1,0 +1,209 @@
+package com.anthem.sps.config;
+
+import java.sql.SQLException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.TimeZone;
+
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import javax.persistence.EntityManagerFactory;
+import javax.sql.DataSource;
+
+import org.dozer.spring.DozerBeanMapperFactoryBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Profile;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.context.annotation.PropertySources;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.io.Resource;
+import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.DataSourceInitializer;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+import com.anthem.sps.common.util.SPSEnvUtil;
+
+import oracle.jdbc.pool.OracleDataSource;
+
+@Configuration
+@EnableTransactionManagement
+@EnableJpaRepositories(entityManagerFactoryRef = "spsEntityManagerFactory", transactionManagerRef = "spsTransactionManager",
+		//basePackages = { "com.anthem.sps.*.persistence.repository", "com.anthem.sps.*.*.persistence.repository", "com.anthem.sps.*.core.service", "com.anthem.sps.bre.rulesImplementation", "com.anthem.sps.bre.service", "com.anthem.sps.cascade.service.critical", "com.anthem.sps.cascade.service.common", "com.anthem.sps.enterprise.service", "com.anthem.sps.cascade.repo" ,"com.anthem.sps.common.service"})
+		//reverting
+		//RG : Deadlock issue		
+		basePackages = { "com.anthem.sps.*" })
+@PropertySources({
+   // @PropertySource(value = "classpath:spsenv.properties", ignoreResourceNotFound = false)
+    @PropertySource(value = "classpath:application.properties")
+})
+public class ApplicationConfig {
+
+	private static final String NAMING_STRATEGY = "hibernate.ejb.naming_strategy";
+	private static final String DDL_STRING = "hibernate.hbm2ddl.auto";
+	private static final String DEFAULT_SCHEMA = "hibernate.default_schema";
+	private static final String HIBERNATE_DIALECT = "hibernate.dialect";
+
+	@Value("${spring.datasource.username}")
+	private String userName;
+
+	@Value("${spring.datasource.password}")
+	private String password;
+
+	@Value("${spring.datasource.url}")
+	private String url;
+	
+	@Value("${spring.jpa.show-sql}")
+	private boolean showSql;
+
+	@Value("${spring.jpa.hibernate.ddl-auto}") 
+	private String ddlValue;
+
+	@Value("${spring.jpa.properties.hibernate.default_schema}")
+	private String defaultSchema;
+
+	@Value("${spring.jpa.properties.hibernate.proc.param_null_passing}")
+	private String spParamNullPassing;
+	
+	@Value("${spring.datasource.jndi-name}")
+	private String jndiName;
+
+	@Value("${spring.jpa.database-platform}")
+	private String dialect;
+
+	@Value("${entityPackageToScan}")
+	private String[] entityPackageToScan;
+	
+	@Value("${mdm.individualUrl}")
+	private String mdmIndivUrl;
+	
+	@Value("${mdm.orgUrl}")
+	private String mdmOrgUrl;
+
+	@Autowired
+	MappingJackson2HttpMessageConverter mappingJackson2HttpMessageConverter;
+
+	/**
+	 * This method will be invoked when all the beans have been initialized successfully. Any specific requirement such as initializing cache , setting up classpath required
+	 * for the application after the beans are initialized and before the application is completely deployed can be done in this method
+	 * 
+	 * @param event
+	 */
+	@EventListener
+	public void applicationInitializer(ContextRefreshedEvent event) {
+
+		// set the default timezone of Spring Jackson to application server
+		// timeZone
+		mappingJackson2HttpMessageConverter.getObjectMapper().setTimeZone(TimeZone.getDefault());
+
+	}
+
+	@Primary
+	@Bean(name = "spsDataSource")
+	DataSource dataSource() throws SQLException {
+		OracleDataSource dataSource = new OracleDataSource();
+		dataSource.setUser(userName);
+		dataSource.setPassword(password);
+		dataSource.setURL(url);
+		dataSource.setImplicitCachingEnabled(true);
+		dataSource.setFastConnectionFailoverEnabled(true);
+		return dataSource;
+	}
+
+	
+	
+	/*@Primary
+	@Bean(name = "spsDataSource")
+	DataSource dataSource() throws NamingException {
+		InitialContext ctx = new InitialContext();
+		return (DataSource) ctx.lookup(jndiName);
+	}*/
+	 
+
+	/*
+	 * The following methods are commented out for effective batching. This can be uncommented if there are any issues during deployment.
+	 * We have found unsupported exception issue in error details Tha'st why we have uncommented this code.
+	 */
+
+	 @Primary
+	 @Bean(name = "spsEntityManagerFactory")
+	 public LocalContainerEntityManagerFactoryBean
+	 entityManagerFactory(@Qualifier("spsDataSource") DataSource dataSource) {
+	
+	 LocalContainerEntityManagerFactoryBean spsEntityManagerFactory = new
+	 LocalContainerEntityManagerFactoryBean();
+	 spsEntityManagerFactory.setDataSource(dataSource);
+	 spsEntityManagerFactory.setPersistenceUnitName("sps");
+	 spsEntityManagerFactory.setPackagesToScan(entityPackageToScan);
+	
+	 Map<String, String> ddlMap = new HashMap<>();
+	 ddlMap.put(DDL_STRING, ddlValue);
+	 ddlMap.put(NAMING_STRATEGY, "org.hibernate.cfg.ImprovedNamingStrategy");
+	 ddlMap.put(HIBERNATE_DIALECT, dialect);
+	 ddlMap.put(DEFAULT_SCHEMA, defaultSchema);
+	 ddlMap.put("hibernate.proc.param_null_passing", spParamNullPassing);
+
+	 spsEntityManagerFactory.setJpaPropertyMap(ddlMap);
+	
+	 HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
+	 vendorAdapter.setShowSql(showSql);
+    spsEntityManagerFactory.setJpaVendorAdapter(vendorAdapter);
+   return spsEntityManagerFactory;
+	 }
+ 	
+	 @Primary
+	 @Bean(name = "spsTransactionManager")
+	 public PlatformTransactionManager
+     transactionManager(@Qualifier("spsEntityManagerFactory") EntityManagerFactory
+     entityManagerFactory) {
+     return new JpaTransactionManager(entityManagerFactory);
+    }
+
+	 @Bean
+	 @Profile("dev")
+	 public DataSourceInitializer
+	 dataSourceInitializerProd(@Qualifier("spsDataSource") DataSource dataSource)
+	 {
+	 DataSourceInitializer initializer = new DataSourceInitializer();
+	 initializer.setDataSource(dataSource);
+	 return initializer;
+	}
+	 
+	@Primary
+	@Bean(name = "spsEnv")
+	public SPSEnvUtil spsEnvConfig() {
+		SPSEnvUtil spsEnvUtil = new SPSEnvUtil();
+		spsEnvUtil.setMdmIndivUrl(mdmIndivUrl);
+		spsEnvUtil.setMdmOrgUrl(mdmOrgUrl);
+		return spsEnvUtil;
+
+	}
+	
+	@Bean
+    public DozerBeanMapperFactoryBean dozerBeanMapperFactoryBean(@Value("classpath*:mappings/*attributeMapping.xml") Resource[] resources) throws Exception {
+        final DozerBeanMapperFactoryBean dozerBeanMapperFactoryBean = new DozerBeanMapperFactoryBean();
+        // Other configurations
+        dozerBeanMapperFactoryBean.setMappingFiles(resources);
+        return dozerBeanMapperFactoryBean;
+    }
+	
+	@Bean
+	public JdbcTemplate springJdbcTemplate(@Qualifier("spsDataSource") DataSource dataSource){
+		JdbcTemplate jdbcTemplate = new JdbcTemplate();
+		jdbcTemplate.setDataSource(dataSource);
+		System.out.println("DataSource - "+jdbcTemplate.getClass());
+		return jdbcTemplate;
+	}
+
+}
